@@ -145,6 +145,33 @@
             animation:flareMove 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
   }
 
+  /* ---- DJ-style laser light-show: a fan of beams from bottom-center ---- */
+  .lasershow{
+    position:absolute; top:0; right:0; bottom:0; left:0; z-index:1;
+    overflow:hidden; pointer-events:none; opacity:0;
+    -webkit-animation:lzShow 3.4s ease 1.8s forwards; animation:lzShow 3.4s ease 1.8s forwards;
+  }
+  @-webkit-keyframes lzShow{0%{opacity:0}9%{opacity:1}80%{opacity:1}100%{opacity:0}}
+  @keyframes lzShow{0%{opacity:0}9%{opacity:1}80%{opacity:1}100%{opacity:0}}
+  .lzwrap{ position:absolute; left:50%; bottom:-10%; width:0; height:0; }
+  .lzbeam{
+    position:absolute; left:-2.5px; bottom:0; width:5px; height:155vh;
+    -webkit-transform-origin:50% 100%; transform-origin:50% 100%;
+    border-radius:3px; opacity:0; mix-blend-mode:screen;
+  }
+  @-webkit-keyframes lzSway{0%{-webkit-transform:rotate(-8deg)}100%{-webkit-transform:rotate(8deg)}}
+          @keyframes lzSway{0%{transform:rotate(-8deg)}100%{transform:rotate(8deg)}}
+  @-webkit-keyframes lzFlick{0%,100%{opacity:.22}18%{opacity:1}52%{opacity:.45}78%{opacity:.92}}
+          @keyframes lzFlick{0%,100%{opacity:.22}18%{opacity:1}52%{opacity:.45}78%{opacity:.92}}
+  /* a soft haze at the emit point so the beams look anchored */
+  .lzsource{
+    position:absolute; left:50%; bottom:-6%; width:40vw; height:22vh;
+    margin-left:-20vw; z-index:1; pointer-events:none; opacity:0;
+    background:radial-gradient(60% 100% at 50% 100%, rgba(255,255,255,.5), rgba(120,170,255,.18) 40%, rgba(0,0,0,0) 72%);
+    mix-blend-mode:screen;
+    -webkit-animation:lzShow 3.4s ease 1.8s forwards; animation:lzShow 3.4s ease 1.8s forwards;
+  }
+
   /* ============================================================
      2) HOME SCREEN
      ============================================================ */
@@ -173,22 +200,21 @@
   .clock .t{ font-size:2.7vw; font-weight:700; }
   .clock .d{ color:var(--muted); font-size:1.05vw; letter-spacing:.05em; margin-top:.35em; }
 
+  /* inline-block layout — CSS Grid is NOT supported on this TV's browser,
+     so tiles were expanding full-width. inline-block works everywhere. */
   .grid{
-    display:grid; grid-template-columns:repeat(5,1fr);
-    -webkit-align-content:start; align-content:start;
     -webkit-flex:1; flex:1; overflow:hidden;
-    margin:0 calc(var(--gap)/-2);   /* offset the cell padding at the edges */
+    font-size:0;            /* removes inline-block whitespace between cells */
+    text-align:left;
   }
-  @media (max-width:1000px){ .grid{ grid-template-columns:repeat(3,1fr); } }
-
   .cell{
-    padding:calc(var(--gap)/2);        /* spacing WITHOUT relying on grid gap */
+    display:inline-block; vertical-align:top;
+    width:20%;              /* exactly 5 per row */
+    padding:0.9vh 0.6vw;
     outline:none; -webkit-tap-highlight-color:transparent;
   }
-
-  /* padding-top ratio hack = tile aspect without aspect-ratio */
   .tile{
-    position:relative; width:100%; height:0; padding-top:58%;
+    position:relative; width:100%; height:18.5vh;
     border-radius:16px; overflow:hidden;
     background:#141418; border:1px solid rgba(255,255,255,.06);
     -webkit-transition:-webkit-transform .18s ease, box-shadow .2s ease, border-color .2s ease;
@@ -256,6 +282,8 @@
   <!-- ===================== BOOT SEQUENCE ===================== -->
   <div id="intro">
     <div class="haze"></div>
+    <div class="lasershow" id="lasershow"></div>
+    <div class="lzsource"></div>
     <div class="stage">
       <div class="wordmark">HOVATAR</div>
       <div class="introsub">Personal&nbsp;Theater</div>
@@ -442,11 +470,7 @@ function indexOfCell(el){
   for(var k=0;k<cells.length;k++){ if(cells[k]===el) return k; }
   return 0;
 }
-function cols(){
-  var tpl = getComputedStyle(grid).getPropertyValue('grid-template-columns');
-  var n = tpl.split(' ').length;
-  return n > 0 ? n : 5;
-}
+function cols(){ return 5; }   /* fixed 5-wide inline-block layout */
 function focusTile(n){
   if(n < 0) n = 0;
   if(n > cells.length-1) n = cells.length-1;
@@ -510,6 +534,33 @@ function tick(){
 }
 tick();
 setInterval(tick, 10000);
+
+/* ---- DJ laser light-show: build a fan of flickering beams ---- */
+(function(){
+  var show = document.getElementById('lasershow');
+  if(!show) return;
+  var cols = ['#ffffff','#38a8ff','#19e3c8','#b14aff','#ff3ca0','#39ff88'];
+  var N = 9;
+  for(var i=0;i<N;i++){
+    var ang = -58 + (116 * (i/(N-1)));          /* fan from -58deg to +58deg */
+    var col = cols[i % cols.length];
+    var w = document.createElement('div'); w.className = 'lzwrap';
+    w.style.webkitTransform = 'rotate('+ang.toFixed(1)+'deg)';
+    w.style.transform = 'rotate('+ang.toFixed(1)+'deg)';
+    var b = document.createElement('div'); b.className = 'lzbeam';
+    b.style.background = '-webkit-linear-gradient(bottom,'+col+',rgba(0,0,0,0) 82%)';
+    b.style.background = 'linear-gradient(to top,'+col+',rgba(0,0,0,0) 82%)';
+    b.style.webkitBoxShadow = '0 0 16px 3px '+col;
+    b.style.boxShadow = '0 0 16px 3px '+col;
+    var sway  = (2.0 + Math.random()*1.8).toFixed(2);
+    var flick = (0.45 + Math.random()*0.8).toFixed(2);
+    var delay = (1.8 + Math.random()*0.5).toFixed(2);
+    var anim = 'lzSway '+sway+'s ease-in-out '+delay+'s infinite alternate, '+
+               'lzFlick '+flick+'s steps(2,end) '+delay+'s infinite';
+    b.style.webkitAnimation = anim; b.style.animation = anim;
+    w.appendChild(b); show.appendChild(w);
+  }
+})();
 
 /* ---- boot -> home handoff (total ~5s) ---- */
 setTimeout(function(){ document.getElementById('home').className = 'show'; }, 4300);
