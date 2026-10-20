@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>HOVATAR</title>
+<style>
+  /* ============================================================
+     HOVATAR launcher for Samsung Tizen 4.0 (Chromium ~M56, 2018).
+     Compatibility notes baked in:
+       - NO clamp()/min()/max()  (unsupported on M56) -> vw/vh + media queries
+       - NO aspect-ratio          -> padding-top ratio hack
+       - NO grid gap dependence   -> spacing via padding on grid cells
+       - NO 'inset' shorthand     -> explicit top/right/bottom/left:0
+       - -webkit- prefixes for transform / animation / clip-path / mask
+       - var()/calc() are fine on M56; JS avoids ?. and ??
+     ============================================================ */
+
+  :root{
+    --bg:#000;
+    --fg:#f5f6f8;
+    --muted:#8c8c96;
+    --gap:24px;
+  }
+  @media (max-width:1300px){ :root{ --gap:16px; } }
+  @media (min-width:2200px){ :root{ --gap:38px; } }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{
+    height:100%; width:100%; overflow:hidden;
+    background:var(--bg); color:var(--fg);
+    font-family:-apple-system,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  body{ cursor:default; }
+
+  /* ============================================================
+     1) BOOT SEQUENCE  (~5s laser-draw of HOVATAR)
+     ============================================================ */
+  #intro{
+    position:fixed; top:0; right:0; bottom:0; left:0; z-index:50;
+    background:#000; display:-webkit-flex; display:flex;
+    -webkit-align-items:center; align-items:center;
+    -webkit-justify-content:center; justify-content:center;
+    overflow:hidden;
+  }
+  /* faint volumetric haze so the beam feels like it lives in a space */
+  #intro .haze{
+    position:absolute; top:0; right:0; bottom:0; left:0;
+    background:radial-gradient(60% 50% at 50% 50%, rgba(80,110,210,.10), rgba(0,0,0,0) 70%);
+    opacity:0;
+    -webkit-animation:haze 3.4s ease .5s forwards; animation:haze 3.4s ease .5s forwards;
+  }
+  @-webkit-keyframes haze{0%{opacity:0}30%{opacity:1}100%{opacity:.35}}
+  @keyframes haze{0%{opacity:0}30%{opacity:1}100%{opacity:.35}}
+
+  #intro.done{ -webkit-animation:introOut .7s ease forwards; animation:introOut .7s ease forwards; }
+  @-webkit-keyframes introOut{to{opacity:0;visibility:hidden}}
+  @keyframes introOut{to{opacity:0;visibility:hidden}}
+
+  .stage{ position:relative; display:-webkit-inline-flex; display:inline-flex;
+    -webkit-align-items:center; align-items:center; }
+
+  .wordmark{
+    position:relative; z-index:2;
+    font-weight:800; letter-spacing:.14em; line-height:1; white-space:nowrap;
+    font-size:9.2vw;
+    color:transparent;
+    background:-webkit-linear-gradient(left,#ffffff,#eaf0ff 60%,#cdd8ff);
+    background:linear-gradient(90deg,#ffffff,#eaf0ff 60%,#cdd8ff);
+    -webkit-background-clip:text; background-clip:text;
+    -webkit-text-fill-color:transparent;
+    -webkit-text-stroke:1px rgba(255,255,255,.05);
+    /* hidden, then "painted" left -> right in sync with the beam */
+    -webkit-clip-path:inset(0 100% 0 0); clip-path:inset(0 100% 0 0);
+    -webkit-animation:reveal 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards,
+                      settle 2.4s ease 2.5s forwards;
+            animation:reveal 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards,
+                      settle 2.4s ease 2.5s forwards;
+  }
+  @-webkit-keyframes reveal{to{-webkit-clip-path:inset(0 0 0 0)}}
+  @keyframes reveal{to{-webkit-clip-path:inset(0 0 0 0);clip-path:inset(0 0 0 0)}}
+  /* the ignite + glow settle after the beam has passed */
+  @-webkit-keyframes settle{
+    0%{text-shadow:0 0 18px rgba(200,215,255,.95),0 0 60px rgba(150,185,255,.55)}
+    100%{text-shadow:0 0 16px rgba(190,205,255,.30)}
+  }
+  @keyframes settle{
+    0%{text-shadow:0 0 18px rgba(200,215,255,.95),0 0 60px rgba(150,185,255,.55)}
+    100%{text-shadow:0 0 16px rgba(190,205,255,.30)}
+  }
+
+  /* subtitle fades up once the word is lit */
+  .introsub{
+    position:absolute; left:0; right:0; bottom:-14%; text-align:center;
+    color:#9fb0d8; font-size:1.3vw; letter-spacing:.55em; text-transform:uppercase;
+    opacity:0; text-indent:.55em;
+    -webkit-animation:subIn 1s ease 2.9s forwards; animation:subIn 1s ease 2.9s forwards;
+  }
+  @-webkit-keyframes subIn{from{opacity:0;-webkit-transform:translateY(8px)}to{opacity:.85;-webkit-transform:translateY(0)}}
+  @keyframes subIn{from{opacity:0;transform:translateY(8px)}to{opacity:.85;transform:translateY(0)}}
+
+  /* the laser beam that rides across and "draws" the letters.
+     Driven by `left` (0%..100% of the wordmark box) so the beam head
+     tracks the reveal edge exactly, whatever the rendered word width. */
+  .beam{
+    position:absolute; top:-30%; height:160%; width:3px; left:0; z-index:3;
+    margin-left:-1.5px;
+    background:-webkit-linear-gradient(top,rgba(255,255,255,0),#fff 16%,#fff 84%,rgba(255,255,255,0));
+    background:linear-gradient(180deg,rgba(255,255,255,0),#fff 16%,#fff 84%,rgba(255,255,255,0));
+    -webkit-box-shadow:0 0 16px 5px rgba(255,255,255,.95),0 0 46px 14px rgba(150,190,255,.7);
+            box-shadow:0 0 16px 5px rgba(255,255,255,.95),0 0 46px 14px rgba(150,190,255,.7);
+    opacity:0;
+    -webkit-animation:sweep 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+            animation:sweep 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+  }
+  @-webkit-keyframes sweep{
+    0%{left:-2%;opacity:0}6%{opacity:1}88%{opacity:1}100%{left:102%;opacity:0}
+  }
+  @keyframes sweep{
+    0%{left:-2%;opacity:0}6%{opacity:1}88%{opacity:1}100%{left:102%;opacity:0}
+  }
+
+  /* bright lens-flare core that rides the beam head */
+  .flare{
+    position:absolute; top:50%; left:0; z-index:3;
+    width:16vw; height:16vw; margin:-8vw 0 0 -8vw;
+    border-radius:50%; pointer-events:none; opacity:0;
+    background:radial-gradient(circle, rgba(255,255,255,.95), rgba(170,200,255,.4) 32%, rgba(0,0,0,0) 62%);
+    mix-blend-mode:screen;
+    -webkit-animation:flareMove 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+            animation:flareMove 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+  }
+  @-webkit-keyframes flareMove{0%{left:-2%;opacity:0}8%{opacity:1}85%{opacity:.9}100%{left:102%;opacity:0}}
+  @keyframes flareMove{0%{left:-2%;opacity:0}8%{opacity:1}85%{opacity:.9}100%{left:102%;opacity:0}}
+
+  /* horizontal anamorphic streak on the flare core */
+  .streak{
+    position:absolute; top:50%; left:0; z-index:3;
+    width:30vw; height:2px; margin:-1px 0 0 -15vw;
+    background:-webkit-linear-gradient(left,rgba(255,255,255,0),rgba(190,215,255,.85),rgba(255,255,255,0));
+    background:linear-gradient(90deg,rgba(255,255,255,0),rgba(190,215,255,.85),rgba(255,255,255,0));
+    mix-blend-mode:screen; opacity:0;
+    -webkit-animation:flareMove 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+            animation:flareMove 2.25s cubic-bezier(.62,.03,.2,1) .45s forwards;
+  }
+
+  /* ============================================================
+     2) HOME SCREEN
+     ============================================================ */
+  #home{
+    position:fixed; top:0; right:0; bottom:0; left:0; z-index:10;
+    padding:4.4vh 4.6vw; display:-webkit-flex; display:flex;
+    -webkit-flex-direction:column; flex-direction:column;
+    opacity:0; -webkit-transition:opacity .7s ease; transition:opacity .7s ease;
+    background:
+      radial-gradient(1200px 620px at 86% -12%, rgba(64,86,170,.18), rgba(0,0,0,0) 60%),
+      radial-gradient(900px 520px at -4% 112%, rgba(120,64,168,.14), rgba(0,0,0,0) 55%),
+      #000;
+  }
+  #home.show{ opacity:1; }
+
+  .topbar{
+    display:-webkit-flex; display:flex;
+    -webkit-align-items:flex-end; align-items:flex-end;
+    -webkit-justify-content:space-between; justify-content:space-between;
+    margin-bottom:3.6vh;
+  }
+  .hello{ font-size:2.2vw; font-weight:600; letter-spacing:.005em; }
+  .hello .sub{ display:block; color:var(--muted); font-weight:500;
+    font-size:.95vw; margin-top:.7em; letter-spacing:.22em; text-transform:uppercase; }
+  .clock{ text-align:right; }
+  .clock .t{ font-size:2.7vw; font-weight:700; }
+  .clock .d{ color:var(--muted); font-size:1.05vw; letter-spacing:.05em; margin-top:.35em; }
+
+  .grid{
+    display:grid; grid-template-columns:repeat(5,1fr);
+    -webkit-align-content:start; align-content:start;
+    -webkit-flex:1; flex:1; overflow:hidden;
+    margin:0 calc(var(--gap)/-2);   /* offset the cell padding at the edges */
+  }
+  @media (max-width:1000px){ .grid{ grid-template-columns:repeat(3,1fr); } }
+
+  .cell{
+    padding:calc(var(--gap)/2);        /* spacing WITHOUT relying on grid gap */
+    outline:none; -webkit-tap-highlight-color:transparent;
+  }
+
+  /* padding-top ratio hack = tile aspect without aspect-ratio */
+  .tile{
+    position:relative; width:100%; height:0; padding-top:58%;
+    border-radius:16px; overflow:hidden;
+    background:#141418; border:1px solid rgba(255,255,255,.06);
+    -webkit-transition:-webkit-transform .18s ease, box-shadow .2s ease, border-color .2s ease;
+            transition:transform .18s ease, box-shadow .2s ease, border-color .2s ease;
+    will-change:transform;
+  }
+  .tile .skin{ position:absolute; top:0; right:0; bottom:0; left:0; }
+  .tile .sheen{ position:absolute; top:0; right:0; bottom:0; left:0;
+    background:-webkit-linear-gradient(top,rgba(255,255,255,.10),rgba(255,255,255,0) 45%);
+    background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,0) 45%);
+    opacity:.6; }
+  .tile .art{ position:absolute; top:0; right:0; bottom:0; left:0;
+    display:-webkit-flex; display:flex;
+    -webkit-align-items:center; align-items:center;
+    -webkit-justify-content:center; justify-content:center; }
+  .tile .logo{ width:70%; height:58%;
+    display:-webkit-flex; display:flex;
+    -webkit-align-items:center; align-items:center;
+    -webkit-justify-content:center; justify-content:center; }
+  .tile .logo svg{ display:block; width:100%; height:100%; }
+
+  .label{ margin-top:.75vh; text-align:center; color:var(--muted);
+    font-size:1.0vw; font-weight:600; letter-spacing:.02em;
+    -webkit-transition:color .18s ease; transition:color .18s ease;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* strong, premium TV focus state */
+  .cell:focus .tile, .cell.sel .tile{
+    border-color:rgba(255,255,255,.95);
+    -webkit-transform:translateY(-6px) scale(1.055);
+            transform:translateY(-6px) scale(1.055);
+    -webkit-box-shadow:0 0 0 3px rgba(255,255,255,.96),
+                       0 22px 60px -14px rgba(0,0,0,.8),
+                       0 0 46px -4px var(--glow,#4466ff);
+            box-shadow:0 0 0 3px rgba(255,255,255,.96),
+                       0 22px 60px -14px rgba(0,0,0,.8),
+                       0 0 46px -4px var(--glow,#4466ff);
+  }
+  .cell:focus .label, .cell.sel .label{ color:#fff; }
+
+  .footer{
+    margin-top:3vh; display:-webkit-flex; display:flex;
+    color:var(--muted); font-size:1.0vw; letter-spacing:.04em;
+  }
+  .footer span{ margin-right:2.2vw; }
+  .footer b{ color:var(--fg); font-weight:600; }
+  .kbd{ display:inline-block; min-width:1.5em; text-align:center;
+    border:1px solid #333; border-radius:6px; padding:.06em .45em;
+    color:#d2d2da; margin-right:.3em; font-weight:600; }
+
+  /* launch toast (desktop preview / Tizen error) */
+  #flash{
+    position:fixed; left:50%; bottom:9%; -webkit-transform:translateX(-50%);
+    transform:translateX(-50%); z-index:60;
+    background:rgba(20,20,26,.94); border:1px solid rgba(255,255,255,.14); color:#fff;
+    padding:.8em 1.4em; border-radius:14px; font-size:1.25vw;
+    -webkit-box-shadow:0 14px 44px rgba(0,0,0,.6); box-shadow:0 14px 44px rgba(0,0,0,.6);
+    opacity:0; -webkit-transition:opacity .25s ease; transition:opacity .25s ease;
+    pointer-events:none;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ===================== BOOT SEQUENCE ===================== -->
+  <div id="intro">
+    <div class="haze"></div>
+    <div class="stage">
+      <div class="wordmark">HOVATAR</div>
+      <div class="introsub">Personal&nbsp;Theater</div>
+      <div class="streak"></div>
+      <div class="flare"></div>
+      <div class="beam"></div>
+    </div>
+  </div>
+
+  <!-- ===================== HOME SCREEN ===================== -->
+  <div id="home">
+    <div class="topbar">
+      <div class="hello"><span id="greet">Welcome back</span><span class="sub">Hovan&rsquo;s TV</span></div>
+      <div class="clock"><div class="t" id="time">--:--</div><div class="d" id="date"></div></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="footer">
+      <span><b class="kbd">&#9664;</b><b class="kbd">&#9654;</b><b class="kbd">&#9650;</b><b class="kbd">&#9660;</b> Move</span>
+      <span><b class="kbd">OK</b> Open app</span>
+    </div>
+  </div>
+
+  <div id="flash"></div>
+
+<script>
+/* ============================================================
+   Inline brand logos (simplified but recognizable), as SVG.
+   Each returns a string with its own viewBox; preserveAspectRatio
+   keeps every mark centered and consistently sized in its tile box.
+   ============================================================ */
+var LOGO = {
+  youtube:
+    '<svg viewBox="0 0 110 78" preserveAspectRatio="xMidYMid meet">'+
+    '<rect x="3" y="3" width="104" height="72" rx="18" ry="18" fill="#FF0000"/>'+
+    '<path d="M44 23 L74 39 L44 55 Z" fill="#ffffff"/></svg>',
+
+  netflix:
+    '<svg viewBox="0 0 64 104" preserveAspectRatio="xMidYMid meet">'+
+    '<path fill="#B1060F" d="M8 4 h16 v96 h-16 Z"/>'+
+    '<path fill="#B1060F" d="M40 4 h16 v96 h-16 Z"/>'+
+    '<path fill="#E50914" d="M8 4 h16 l32 96 h-16 Z"/></svg>',
+
+  disney:
+    '<svg viewBox="0 0 220 72" preserveAspectRatio="xMidYMid meet">'+
+    '<path d="M18 18 Q110 2 196 16" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity=".9"/>'+
+    '<text x="12" y="56" font-family="Georgia,\'Times New Roman\',serif" font-style="italic" font-weight="700" font-size="48" fill="#ffffff">Disney</text>'+
+    '<text x="172" y="50" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="40" fill="#ffffff">+</text></svg>',
+
+  max:
+    '<svg viewBox="0 0 200 72" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="100" y="54" text-anchor="middle" font-family="\'Arial Black\',Arial,sans-serif" font-weight="900" font-size="56" letter-spacing="-2" fill="#ffffff">Max</text></svg>',
+
+  prime:
+    '<svg viewBox="0 0 220 86" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="110" y="40" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="30" letter-spacing="1" fill="#ffffff">prime video</text>'+
+    '<path d="M44 62 Q110 86 172 62" fill="none" stroke="#1399FF" stroke-width="7" stroke-linecap="round"/>'+
+    '<path d="M172 62 l2 -15 l13 9 Z" fill="#1399FF"/></svg>',
+
+  hulu:
+    '<svg viewBox="0 0 200 72" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="100" y="54" text-anchor="middle" font-family="\'Arial Black\',Arial,sans-serif" font-weight="900" font-size="54" letter-spacing="-1" fill="#ffffff">hulu</text></svg>',
+
+  paramount:
+    '<svg viewBox="0 0 200 118" preserveAspectRatio="xMidYMid meet">'+
+    '<path d="M100 20 L150 78 L50 78 Z" fill="#ffffff"/>'+
+    '<path d="M100 20 L118 78 L100 70 L82 78 Z" fill="#dbe6ff"/>'+
+    '<g fill="#ffffff">'+
+    '<circle cx="54" cy="30" r="2.6"/><circle cx="74" cy="18" r="2.6"/>'+
+    '<circle cx="100" cy="12" r="2.6"/><circle cx="126" cy="18" r="2.6"/>'+
+    '<circle cx="146" cy="30" r="2.6"/></g>'+
+    '<text x="100" y="104" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="22" letter-spacing="1" fill="#ffffff">Paramount+</text></svg>',
+
+  peacock:
+    '<svg viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet">'+
+    '<g>'+
+    '<g transform="rotate(-50 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#FEC51D"/></g>'+
+    '<g transform="rotate(-30 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#F37021"/></g>'+
+    '<g transform="rotate(-10 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#E4002B"/></g>'+
+    '<g transform="rotate(10 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#6E2C91"/></g>'+
+    '<g transform="rotate(30 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#1F6FBF"/></g>'+
+    '<g transform="rotate(50 60 96)"><path d="M60 96 C50 60 55 30 60 18 C65 30 70 60 60 96 Z" fill="#43B649"/></g>'+
+    '</g></svg>',
+
+  spotify:
+    '<svg viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet">'+
+    '<circle cx="60" cy="60" r="56" fill="#1DB954"/>'+
+    '<g fill="none" stroke="#0b0b0b" stroke-linecap="round">'+
+    '<path d="M32 46 Q60 36 90 52" stroke-width="9"/>'+
+    '<path d="M36 62 Q60 54 83 66" stroke-width="7.5"/>'+
+    '<path d="M39 76 Q60 70 77 79" stroke-width="6"/>'+
+    '</g></svg>',
+
+  plex:
+    '<svg viewBox="0 0 110 110" preserveAspectRatio="xMidYMid meet">'+
+    '<path fill="#E5A00D" d="M34 16 L62 55 L34 94 L54 94 L82 55 L54 16 Z"/></svg>',
+
+  tubi:
+    '<svg viewBox="0 0 200 72" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="100" y="54" text-anchor="middle" font-family="\'Arial Black\',Arial,sans-serif" font-weight="900" font-size="54" letter-spacing="-1" fill="#ffffff">tubi</text></svg>',
+
+  pluto:
+    '<svg viewBox="0 0 210 72" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="105" y="50" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="800" font-size="40" letter-spacing="-1" fill="#ffffff">pluto<tspan fill="#19E3C8">&#160;tv</tspan></text></svg>',
+
+  espn:
+    '<svg viewBox="0 0 200 72" preserveAspectRatio="xMidYMid meet">'+
+    '<text x="100" y="54" text-anchor="middle" font-family="\'Arial Black\',Arial,sans-serif" font-style="italic" font-weight="900" font-size="52" letter-spacing="-1" fill="#ffffff">ESPN</text></svg>',
+
+  youtubetv:
+    '<svg viewBox="0 0 200 86" preserveAspectRatio="xMidYMid meet">'+
+    '<rect x="16" y="22" width="60" height="42" rx="11" ry="11" fill="#FF0000"/>'+
+    '<path d="M40 34 L58 43 L40 52 Z" fill="#ffffff"/>'+
+    '<text x="92" y="58" font-family="\'Arial Black\',Arial,sans-serif" font-weight="900" font-size="46" fill="#ffffff">TV</text></svg>',
+
+  browser:
+    '<svg viewBox="0 0 120 120" preserveAspectRatio="xMidYMid meet">'+
+    '<circle cx="60" cy="60" r="50" fill="none" stroke="#ffffff" stroke-width="5"/>'+
+    '<ellipse cx="60" cy="60" rx="22" ry="50" fill="none" stroke="#ffffff" stroke-width="4"/>'+
+    '<line x1="12" y1="46" x2="108" y2="46" stroke="#ffffff" stroke-width="4"/>'+
+    '<line x1="12" y1="74" x2="108" y2="74" stroke="#ffffff" stroke-width="4"/>'+
+    '<line x1="60" y1="10" x2="60" y2="110" stroke="#ffffff" stroke-width="4"/></svg>'
+};
+
+/* ---- the user's real apps (ids verified from the TV, 2026-10-19) ----
+   glow = focus-ring color   |   bg = tile skin   |   logo = mark key    */
+var APPS = [
+  {name:"YouTube",    id:"111299001912",  logo:"youtube",   glow:"#ff2d2d",
+   bg:"linear-gradient(135deg,#231012,#0b0b0d)"},
+  {name:"Netflix",    id:"11101200001",   logo:"netflix",   glow:"#e50914",
+   bg:"linear-gradient(135deg,#1a1012,#050506)"},
+  {name:"Disney+",    id:"3201901017640", logo:"disney",    glow:"#1f6feb",
+   bg:"linear-gradient(135deg,#0b1b57,#071233)"},
+  {name:"HBO Max",    id:"3202301029760", logo:"max",       glow:"#3a5bff",
+   bg:"linear-gradient(135deg,#0b2bd6,#061a86)"},
+  {name:"Prime Video",id:"3201512006785", logo:"prime",     glow:"#1399ff",
+   bg:"linear-gradient(135deg,#0c2234,#0a1420)"},
+  {name:"Hulu",       id:"3201601007625", logo:"hulu",      glow:"#1ce783",
+   bg:"linear-gradient(135deg,#1ce783,#12b265)"},
+  {name:"Paramount+", id:"3201710014981", logo:"paramount", glow:"#2b6bff",
+   bg:"linear-gradient(135deg,#0a4bff,#062a9e)"},
+  {name:"Peacock",    id:"3202006020991", logo:"peacock",   glow:"#ff8a00",
+   bg:"linear-gradient(135deg,#1a1a1d,#060607)"},
+  {name:"Spotify",    id:"3201606009684", logo:"spotify",   glow:"#1db954",
+   bg:"linear-gradient(135deg,#141416,#060607)"},
+  {name:"Plex",       id:"3201512006963", logo:"plex",      glow:"#e5a00d",
+   bg:"linear-gradient(135deg,#20200f,#0a0a06)"},
+  {name:"Tubi",       id:"3201504001965", logo:"tubi",      glow:"#8b3cff",
+   bg:"linear-gradient(135deg,#7b24f0,#4a12c0)"},
+  {name:"Pluto TV",   id:"3201808016802", logo:"pluto",     glow:"#19e3c8",
+   bg:"linear-gradient(135deg,#0e2730,#07141b)"},
+  {name:"ESPN",       id:"3201708014618", logo:"espn",      glow:"#d50a0a",
+   bg:"linear-gradient(135deg,#e01212,#9c0808)"},
+  {name:"YouTube TV", id:"3201707014489", logo:"youtubetv", glow:"#ff2d2d",
+   bg:"linear-gradient(135deg,#1c1012,#070708)"},
+  {name:"Internet",   id:"org.tizen.browser", logo:"browser", glow:"#3b82f6",
+   bg:"linear-gradient(135deg,#17336e,#0a1a40)"}
+];
+
+/* ---- build the grid ---- */
+var grid = document.getElementById('grid');
+var i;
+for(i=0;i<APPS.length;i++){
+  (function(a){
+    var cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.tabIndex = 0;
+    cell.style.setProperty('--glow', a.glow);
+    cell.innerHTML =
+      '<div class="tile">'+
+        '<div class="skin" style="background:'+a.bg+'"></div>'+
+        '<div class="sheen"></div>'+
+        '<div class="art"><div class="logo">'+LOGO[a.logo]+'</div></div>'+
+      '</div>'+
+      '<div class="label">'+a.name+'</div>';
+    cell.addEventListener('click', function(){ focusTile(indexOfCell(cell)); launch(a); });
+    grid.appendChild(cell);
+  })(APPS[i]);
+}
+
+var cells = grid.querySelectorAll('.cell');
+var cur = 0;
+
+function indexOfCell(el){
+  for(var k=0;k<cells.length;k++){ if(cells[k]===el) return k; }
+  return 0;
+}
+function cols(){
+  var tpl = getComputedStyle(grid).getPropertyValue('grid-template-columns');
+  var n = tpl.split(' ').length;
+  return n > 0 ? n : 5;
+}
+function focusTile(n){
+  if(n < 0) n = 0;
+  if(n > cells.length-1) n = cells.length-1;
+  cur = n;
+  for(var k=0;k<cells.length;k++){ cells[k].className = 'cell'; }
+  cells[cur].className = 'cell sel';
+  try{ cells[cur].focus(); }catch(e){}
+}
+function launch(a){
+  try{
+    if(window.tizen && tizen.application && tizen.application.launch){
+      tizen.application.launch(a.id, function(){}, function(err){ flash("Couldn’t open "+a.name); });
+      return;
+    }
+  }catch(e){}
+  flash("Launch → "+a.name+"  ("+a.id+")");   /* browser preview fallback */
+}
+var flashNode = document.getElementById('flash');
+var flashTimer = null;
+function flash(msg){
+  flashNode.textContent = msg;
+  flashNode.style.opacity = '1';
+  if(flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(function(){ flashNode.style.opacity = '0'; }, 1700);
+}
+
+/* ---- remote / keyboard navigation ---- */
+document.addEventListener('keydown', function(e){
+  var c = cols();
+  var code = e.keyCode;
+  if(code === 37){ focusTile(cur-1); }           /* Left  */
+  else if(code === 39){ focusTile(cur+1); }       /* Right */
+  else if(code === 38){ focusTile(cur-c); }       /* Up    */
+  else if(code === 40){ focusTile(cur+c); }       /* Down  */
+  else if(code === 13){ launch(APPS[cur]); }      /* Enter / OK */
+  else if(code === 10009){ /* Tizen RETURN / Back -> no-op on home */ }
+  else { return; }
+  e.preventDefault();
+});
+/* register common Tizen remote keys, if present */
+try{
+  if(window.tizen && tizen.tvinputdevice){
+    var keys = ['0','1','2','3','4','ColorF0Red','ColorF1Green'];
+    for(var j=0;j<keys.length;j++){ try{ tizen.tvinputdevice.registerKey(keys[j]); }catch(_){} }
+  }
+}catch(e){}
+
+/* ---- live clock + greeting ---- */
+function pad2(n){ return (n < 10 ? '0' : '') + n; }
+function tick(){
+  var d = new Date();
+  var h = d.getHours();
+  var m = d.getMinutes();
+  var ap = h >= 12 ? 'PM' : 'AM';
+  var h12 = h % 12; if(h12 === 0){ h12 = 12; }
+  document.getElementById('time').textContent = h12 + ':' + pad2(m) + ' ' + ap;
+  document.getElementById('date').textContent =
+    d.toLocaleDateString(undefined, {weekday:'long', month:'long', day:'numeric'});
+  document.getElementById('greet').textContent =
+    h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
+}
+tick();
+setInterval(tick, 10000);
+
+/* ---- boot -> home handoff (total ~5s) ---- */
+setTimeout(function(){ document.getElementById('home').className = 'show'; }, 4300);
+setTimeout(function(){
+  document.getElementById('home').className = 'show';
+  document.getElementById('intro').className = 'done';
+  focusTile(0);
+}, 4700);
+</script>
+</body>
+</html>
