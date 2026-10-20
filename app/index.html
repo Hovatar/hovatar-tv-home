@@ -497,7 +497,9 @@ function serviceLaunch(a){
     x.open('GET','http://127.0.0.1:8188/launch/'+encodeURIComponent(a.id), true);
     x.timeout = 4000;
     x.onload = function(){
-      try{ var r = JSON.parse(x.responseText); if(r && r.ok === false){ flash("Couldn’t open "+a.name); } }catch(e){}
+      try{ var r = JSON.parse(x.responseText);
+        if(r && r.ok === false){ flash(a.name+": "+(r.msg || "launch failed"), 5000); }
+      }catch(e){ flash("resp: "+x.responseText, 5000); }
     };
     x.onerror   = function(){ flash("Service starting — press OK again"); };
     x.ontimeout = function(){ flash("Service starting — press OK again"); };
@@ -506,11 +508,11 @@ function serviceLaunch(a){
 }
 var flashNode = document.getElementById('flash');
 var flashTimer = null;
-function flash(msg){
+function flash(msg, dur){
   flashNode.textContent = msg;
   flashNode.style.opacity = '1';
   if(flashTimer) clearTimeout(flashTimer);
-  flashTimer = setTimeout(function(){ flashNode.style.opacity = '0'; }, 1700);
+  flashTimer = setTimeout(function(){ flashNode.style.opacity = '0'; }, dur || 1700);
 }
 
 /* ---- remote / keyboard navigation ---- */

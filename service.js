@@ -18,7 +18,7 @@
         tizen.application.launch(
           appId,
           function () { cb(true, ''); },
-          function (err) { cb(false, (err && err.message) ? err.message : 'launch error'); }
+          function (err) { cb(false, err ? ((err.name || 'Error') + ': ' + (err.message || '')) : 'launch error'); }
         );
         return;
       }
