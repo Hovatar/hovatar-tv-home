@@ -480,13 +480,29 @@ function focusTile(n){
   try{ cells[cur].focus(); }catch(e){}
 }
 function launch(a){
+  /* 1) direct Tizen API, if this context ever exposes it */
   try{
     if(window.tizen && tizen.application && tizen.application.launch){
-      tizen.application.launch(a.id, function(){}, function(err){ flash("Couldn’t open "+a.name); });
+      tizen.application.launch(a.id, function(){}, function(){ serviceLaunch(a); });
       return;
     }
   }catch(e){}
-  flash("Launch → "+a.name+"  ("+a.id+")");   /* browser preview fallback */
+  /* 2) ask our privileged TizenBrew service file to launch it */
+  serviceLaunch(a);
+}
+function serviceLaunch(a){
+  flash("Opening "+a.name+"…");
+  try{
+    var x = new XMLHttpRequest();
+    x.open('GET','http://127.0.0.1:8188/launch/'+encodeURIComponent(a.id), true);
+    x.timeout = 4000;
+    x.onload = function(){
+      try{ var r = JSON.parse(x.responseText); if(r && r.ok === false){ flash("Couldn’t open "+a.name); } }catch(e){}
+    };
+    x.onerror   = function(){ flash("Service starting — press OK again"); };
+    x.ontimeout = function(){ flash("Service starting — press OK again"); };
+    x.send();
+  }catch(e){ flash("Launch → "+a.name+"  ("+a.id+")"); }
 }
 var flashNode = document.getElementById('flash');
 var flashTimer = null;
